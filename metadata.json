@@ -1,0 +1,6 @@
+{
+  "name": "Drive Ctrl",
+  "description": "Explorador de arquivos seguro e nuvem pessoal de alta performance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

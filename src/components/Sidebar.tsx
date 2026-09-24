@@ -4,15 +4,28 @@ import { Home, Clock, Star, Trash2, Cloud, HardDrive, Plus, Upload } from 'lucid
 interface SidebarProps {
   currentView: 'home' | 'recent' | 'starred' | 'trash';
   onViewChange: (view: 'home' | 'recent' | 'starred' | 'trash') => void;
+  storageInfo: {
+    total: number;
+    used: number;
+    label: string;
+  } | null;
 }
 
-export default function Sidebar({ currentView, onViewChange }: SidebarProps) {
+export default function Sidebar({ currentView, onViewChange, storageInfo }: SidebarProps) {
   const menuItems = [
     { id: 'home', label: 'Meu Drive', icon: Home },
     { id: 'recent', label: 'Recentes', icon: Clock },
     { id: 'starred', label: 'Favoritos', icon: Star },
     { id: 'trash', label: 'Lixeira', icon: Trash2 },
   ];
+
+  const formatSize = (bytes: number) => {
+    if (!bytes) return '0 GB';
+    const gb = bytes / (1024 * 1024 * 1024);
+    return gb.toFixed(1) + ' GB';
+  };
+
+  const usagePercent = storageInfo ? (storageInfo.used / storageInfo.total) * 100 : 0;
 
   return (
     <aside className="w-64 border-r border-slate-200 bg-white flex flex-col shrink-0 hidden lg:flex">
@@ -48,20 +61,22 @@ export default function Sidebar({ currentView, onViewChange }: SidebarProps) {
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
             <Cloud className="w-3.5 h-3.5" />
-            Armazenamento
+            Armazenamento (Unidade {storageInfo?.label || '...'})
           </div>
           <div className="space-y-2">
             <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-              <div className="h-full w-[65%] bg-blue-600 rounded-full" />
+              <div 
+                className="h-full bg-blue-600 rounded-full transition-all duration-500" 
+                style={{ width: `${usagePercent}%` }}
+              />
             </div>
             <div className="flex justify-between text-[11px] font-medium">
-              <span className="text-slate-900">9.75 GB de 15 GB</span>
-              <span className="text-slate-400">65%</span>
+              <span className="text-slate-900">
+                {formatSize(storageInfo?.used || 0)} de {formatSize(storageInfo?.total || 0)}
+              </span>
+              <span className="text-slate-400">{usagePercent.toFixed(0)}%</span>
             </div>
           </div>
-          <button className="w-full py-2 text-[11px] font-bold text-blue-600 hover:text-blue-700 transition-colors uppercase tracking-widest">
-            Comprar Espaço
-          </button>
         </div>
       </div>
 
@@ -72,7 +87,7 @@ export default function Sidebar({ currentView, onViewChange }: SidebarProps) {
           </div>
           <div>
             <p className="text-[11px] font-bold text-slate-900 leading-tight">Servidor Local</p>
-            <p className="text-[10px] text-slate-500 leading-tight mt-0.5">Online • Juazeiro</p>
+            <p className="text-[10px] text-slate-500 leading-tight mt-0.5">Online • HD F:</p>
           </div>
         </div>
       </div>

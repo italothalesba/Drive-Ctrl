@@ -6,15 +6,17 @@ import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
-import { createReadStream, createWriteStream, existsSync } from 'fs';
+import { createReadStream, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import checkDiskSpace from 'check-disk-space';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
-const STORAGE_ROOT = path.resolve(process.env.STORAGE_ROOT || './data');
+// Default to F:\ for the user, but fallback to ./data for safety in this env
+const STORAGE_ROOT = path.resolve(process.env.STORAGE_ROOT || 'F:\\');
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'password123';
@@ -160,6 +162,21 @@ const upload = multer({ storage });
 
 app.post('/api/upload', authenticateToken, upload.array('files'), (req, res) => {
   res.json({ success: true });
+});
+
+// Storage Info Route
+app.get('/api/storage-info', authenticateToken, async (req, res) => {
+  try {
+    const diskSpace = await checkDiskSpace(STORAGE_ROOT);
+    res.json({
+      total: diskSpace.size,
+      free: diskSpace.free,
+      used: diskSpace.size - diskSpace.free,
+      label: path.parse(STORAGE_ROOT).root
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 // Download & Stream

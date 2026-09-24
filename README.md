@@ -73,5 +73,5 @@ Se você quiser acessar o drive de fora do hospital (pela internet), você tem d
 *   **Antivírus:** Algumas soluções de antivírus podem bloquear o servidor Node.js; se o upload falhar, verifique o firewall.
 
 ---
-**Drive Ctrl - Suporte Técnico**
-*WhatsApp: (88) 9 8842-5694*
+**Drive Ctrl - Gestão Inteligente**
+*Sua Nuvem Particular com Segurança Total*

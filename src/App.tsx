@@ -17,6 +17,24 @@ export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('drive_token'));
   const [currentPath, setCurrentPath] = useState<string>('');
   const [view, setView] = useState<'home' | 'recent' | 'starred' | 'trash'>('home');
+  const [storageInfo, setStorageInfo] = useState<{ total: number; used: number; label: string } | null>(null);
+
+  useEffect(() => {
+    if (token) {
+      const fetchStorage = async () => {
+        try {
+          const res = await api.get('/api/storage-info');
+          setStorageInfo(res.data);
+        } catch (err) {
+          console.error('Failed to fetch storage info', err);
+        }
+      };
+      fetchStorage();
+      // Refresh every 30 seconds
+      const interval = setInterval(fetchStorage, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [token]);
 
   if (!token) {
     return <Login onLogin={setToken} />;
@@ -24,7 +42,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-[#F8FAFC] text-slate-900 font-sans overflow-hidden">
-      <Sidebar currentView={view} onViewChange={setView} />
+      <Sidebar currentView={view} onViewChange={setView} storageInfo={storageInfo} />
       
       <main className="flex-1 flex flex-col min-w-0">
         <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 shrink-0">
@@ -63,14 +81,6 @@ export default function App() {
             <span>·</span>
             <span>Sua Nuvem Particular</span>
           </div>
-          <a 
-            href="https://wa.me/5588988425694" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
-          >
-            Suporte via WhatsApp: (88) 9 8842-5694
-          </a>
         </footer>
       </main>
     </div>

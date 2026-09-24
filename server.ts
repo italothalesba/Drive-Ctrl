@@ -254,6 +254,9 @@ app.get('/api/preview', (req, res) => {
         '.svg': 'image/svg+xml',
         '.mp4': 'video/mp4',
         '.webm': 'video/webm',
+        '.mp3': 'audio/mpeg',
+        '.wav': 'audio/wav',
+        '.m4a': 'audio/mp4',
         '.pdf': 'application/pdf',
         '.txt': 'text/plain',
       };

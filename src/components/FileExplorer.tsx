@@ -509,6 +509,21 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
                       />
                     )}
 
+                    {/* Audio Preview */}
+                    {['mp3', 'wav', 'ogg', 'm4a'].includes(selectedMedia.extension) && (
+                      <div className="flex flex-col items-center gap-8 p-12">
+                        <div className="w-32 h-32 bg-white/5 rounded-full flex items-center justify-center animate-pulse">
+                          <Music className="w-16 h-16 text-white/20" />
+                        </div>
+                        <audio 
+                          src={previewUrl} 
+                          controls 
+                          autoPlay
+                          className="w-80 h-12"
+                        />
+                      </div>
+                    )}
+
                     {/* PDF Preview */}
                     {selectedMedia.extension === 'pdf' && (
                       <iframe 
@@ -528,7 +543,7 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
                     )}
 
                     {/* Unsupported Preview */}
-                    {!['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'svg', 'mp4', 'webm', 'ogg', 'mov', 'pdf', 'txt', 'md', 'log', 'js', 'ts', 'tsx', 'html', 'css', 'json'].includes(selectedMedia.extension) && (
+                    {!['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'svg', 'mp4', 'webm', 'ogg', 'mov', 'mp3', 'wav', 'm4a', 'pdf', 'txt', 'md', 'log', 'js', 'ts', 'tsx', 'html', 'css', 'json'].includes(selectedMedia.extension) && (
                       <div className="text-center p-12">
                         <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mb-6 mx-auto">
                           <File className="w-10 h-10 text-white/20" />

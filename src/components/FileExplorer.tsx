@@ -13,23 +13,94 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface FileExplorerProps {
   currentPath: string;
   setCurrentPath: (path: string) => void;
+  view: 'home' | 'recent' | 'starred' | 'trash';
 }
 
-export default function FileExplorer({ currentPath, setCurrentPath }: FileExplorerProps) {
+export default function FileExplorer({ currentPath, setCurrentPath, view }: FileExplorerProps) {
   const [items, setItems] = useState<FileItemData[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [selectedMedia, setSelectedMedia] = useState<{ name: string; path: string; type: string } | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<{ name: string; path: string; type: string; extension: string } | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [textContent, setTextContent] = useState<string | null>(null);
+  const [heicLoading, setHeicLoading] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const getFileUrl = (path: string) => {
+    return `/api/preview?path=${encodeURIComponent(path)}&token=${localStorage.getItem('drive_token')}`;
+  };
+
+  const handleItemClick = async (item: any) => {
+    if (item.isDirectory) {
+      handleFolderClick(item.name);
+      return;
+    }
+
+    const path = item.path || (currentPath ? `${currentPath}/${item.name}` : item.name);
+    const ext = item.extension.toLowerCase();
+    
+    setSelectedMedia({ 
+      name: item.name, 
+      path, 
+      type: 'file',
+      extension: ext
+    });
+
+    const url = getFileUrl(path);
+    console.log('Opening preview for:', path, url);
+
+    if (['heic', 'heif'].includes(ext)) {
+      setHeicLoading(true);
+      try {
+        const heic2any = (await import('heic2any')).default;
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const convertedBlob = await heic2any({ blob, toType: 'image/jpeg' });
+        const convertedUrl = URL.createObjectURL(Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob);
+        setPreviewUrl(convertedUrl);
+      } catch (err) {
+        console.error('HEIC conversion failed', err);
+        setPreviewUrl(url);
+      } finally {
+        setHeicLoading(false);
+      }
+    } else if (['txt', 'md', 'log', 'js', 'ts', 'tsx', 'html', 'css', 'json'].includes(ext)) {
+      try {
+        const res = await fetch(url);
+        const text = await res.text();
+        setTextContent(text);
+        setPreviewUrl(url);
+      } catch (err) {
+        console.error('Text fetch failed', err);
+        setPreviewUrl(url);
+      }
+    } else {
+      setPreviewUrl(url);
+    }
+  };
+
+  const closePreview = () => {
+    if (previewUrl && previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    setSelectedMedia(null);
+    setPreviewUrl(null);
+    setTextContent(null);
+  };
 
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const response = await api.get(`/api/files?path=${encodeURIComponent(currentPath)}`);
-      setItems(response.data.items);
+      if (view === 'recent') {
+        const response = await api.get('/api/recent-files');
+        setItems(response.data);
+      } else {
+        const response = await api.get(`/api/files?path=${encodeURIComponent(currentPath)}`);
+        setItems(response.data.items);
+      }
     } catch (error) {
       console.error('Failed to fetch files', error);
     } finally {
@@ -39,7 +110,7 @@ export default function FileExplorer({ currentPath, setCurrentPath }: FileExplor
 
   useEffect(() => {
     fetchFiles();
-  }, [currentPath]);
+  }, [currentPath, view]);
 
   const handleFolderClick = (folderName: string) => {
     const newPath = currentPath ? `${currentPath}/${folderName}` : folderName;
@@ -99,8 +170,8 @@ export default function FileExplorer({ currentPath, setCurrentPath }: FileExplor
     }
   };
 
-  const handleDownload = (name: string) => {
-    const path = currentPath ? `${currentPath}/${name}` : name;
+  const handleDownload = (name: string, itemPath?: string) => {
+    const path = itemPath || (currentPath ? `${currentPath}/${name}` : name);
     window.open(`/api/download?path=${encodeURIComponent(path)}&token=${localStorage.getItem('drive_token')}`, '_blank');
   };
 
@@ -119,11 +190,13 @@ export default function FileExplorer({ currentPath, setCurrentPath }: FileExplor
   const getFileIcon = (item: FileItemData) => {
     if (item.isDirectory) return <Folder className="w-8 h-8 text-blue-500 fill-blue-500/10" />;
     
-    const ext = item.extension;
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return <ImageIcon className="w-8 h-8 text-emerald-500" />;
-    if (['mp4', 'mov', 'avi', 'mkv'].includes(ext)) return <Video className="w-8 h-8 text-purple-500" />;
-    if (['mp3', 'wav', 'ogg'].includes(ext)) return <Music className="w-8 h-8 text-rose-500" />;
-    if (['pdf', 'doc', 'docx', 'txt'].includes(ext)) return <FileText className="w-8 h-8 text-blue-400" />;
+    const ext = item.extension.toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'heic', 'heif', 'cr2', 'nef', 'arw'].includes(ext)) return <ImageIcon className="w-8 h-8 text-emerald-500" />;
+    if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return <Video className="w-8 h-8 text-purple-500" />;
+    if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) return <Music className="w-8 h-8 text-rose-500" />;
+    if (['pdf'].includes(ext)) return <FileText className="w-8 h-8 text-red-500" />;
+    if (['doc', 'docx', 'txt', 'md', 'log'].includes(ext)) return <FileText className="w-8 h-8 text-blue-400" />;
+    if (['dcm', 'dicom'].includes(ext)) return <FileText className="w-8 h-8 text-cyan-500" />;
     return <File className="w-8 h-8 text-slate-400" />;
   };
 
@@ -135,9 +208,29 @@ export default function FileExplorer({ currentPath, setCurrentPath }: FileExplor
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  const filteredItems = items.filter(item => 
-    item.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredItems = items
+    .filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      if (view === 'recent') {
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      }
+      if (a.isDirectory === b.isDirectory) return a.name.localeCompare(b.name);
+      return a.isDirectory ? -1 : 1;
+    });
+
+  if (view === 'starred' || view === 'trash') {
+    return (
+      <div className="p-12 flex flex-col items-center justify-center text-center h-full">
+        <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mb-6">
+          <Star className="w-10 h-10 text-slate-300" />
+        </div>
+        <h3 className="text-lg font-bold text-slate-900">Em Breve</h3>
+        <p className="text-slate-500 text-sm max-w-xs mt-2">
+          As funções de Favoritos e Lixeira estão sendo preparadas para integração total com seu HD.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 h-full flex flex-col">
@@ -241,7 +334,7 @@ export default function FileExplorer({ currentPath, setCurrentPath }: FileExplor
               animate={{ opacity: 1, scale: 1 }}
               key={item.name}
               className="group relative bg-white border border-slate-200 rounded-2xl p-4 hover:border-blue-400 hover:shadow-xl hover:shadow-blue-500/5 transition-all cursor-pointer"
-              onClick={() => item.isDirectory ? handleFolderClick(item.name) : null}
+              onClick={() => handleItemClick(item)}
             >
               <div className="aspect-square flex items-center justify-center mb-3">
                 {getFileIcon(item)}
@@ -258,7 +351,7 @@ export default function FileExplorer({ currentPath, setCurrentPath }: FileExplor
               {/* Hover Actions */}
               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                 <button 
-                  onClick={(e) => { e.stopPropagation(); handleDownload(item.name); }}
+                  onClick={(e) => { e.stopPropagation(); handleDownload(item.name, item.path); }}
                   className="p-1.5 bg-white shadow-sm border border-slate-100 rounded-lg text-slate-400 hover:text-blue-600 hover:border-blue-100 transition-colors"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -288,7 +381,7 @@ export default function FileExplorer({ currentPath, setCurrentPath }: FileExplor
               {filteredItems.map((item) => (
                 <tr 
                   key={item.name}
-                  onClick={() => item.isDirectory ? handleFolderClick(item.name) : null}
+                  onClick={() => handleItemClick(item)}
                   className="group hover:bg-slate-50 transition-colors cursor-pointer border-b border-slate-50 last:border-0"
                 >
                   <td className="px-6 py-3.5">
@@ -312,7 +405,7 @@ export default function FileExplorer({ currentPath, setCurrentPath }: FileExplor
                   <td className="px-6 py-3.5">
                     <div className="flex items-center justify-end gap-1">
                       <button 
-                        onClick={(e) => { e.stopPropagation(); handleDownload(item.name); }}
+                        onClick={(e) => { e.stopPropagation(); handleDownload(item.name, item.path); }}
                         className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                       >
                         <Download className="w-4 h-4" />
@@ -338,23 +431,122 @@ export default function FileExplorer({ currentPath, setCurrentPath }: FileExplor
         </div>
       )}
 
-      {/* Media Viewer Modal (Placeholder for future expansion) */}
+      {/* Media Viewer Modal */}
       <AnimatePresence>
         {selectedMedia && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-sm">
-            <div className="relative w-full max-w-4xl bg-black rounded-3xl overflow-hidden shadow-2xl">
-              <div className="absolute top-4 right-4 z-10 flex gap-2">
-                <button 
-                  onClick={() => setSelectedMedia(null)}
-                  className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-5xl bg-black rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between z-20 bg-gradient-to-b from-black/60 to-transparent">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-white/10 rounded-xl backdrop-blur-md">
+                    <FileText className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold text-sm leading-tight">{selectedMedia.name}</h3>
+                    <p className="text-white/40 text-[10px] uppercase tracking-widest mt-0.5">{selectedMedia.extension}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => handleDownload(selectedMedia.name, selectedMedia.path)}
+                    className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-colors backdrop-blur-md flex items-center gap-2 text-xs font-medium px-4"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download
+                  </button>
+                  <button 
+                    onClick={closePreview}
+                    className="p-2 bg-white/10 hover:bg-red-500/80 text-white rounded-xl transition-colors backdrop-blur-md"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
-              <div className="p-12 flex items-center justify-center min-h-[400px]">
-                <p className="text-white">Player de Mídia em Desenvolvimento...</p>
+
+              {/* Content */}
+              <div className="flex-1 overflow-auto flex items-center justify-center bg-[#0a0a0a]">
+                {heicLoading ? (
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="w-10 h-10 border-4 border-white/10 border-t-white rounded-full animate-spin" />
+                    <p className="text-white/60 text-sm font-medium">Convertendo HEIC...</p>
+                  </div>
+                ) : !previewUrl ? (
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="w-10 h-10 border-4 border-white/10 border-t-white rounded-full animate-spin" />
+                  </div>
+                ) : (
+                  <>
+                    {/* Image Preview */}
+                    {['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'svg'].includes(selectedMedia.extension) && (
+                      <div className="relative flex items-center justify-center w-full h-full">
+                        <img 
+                          src={previewUrl} 
+                          alt={selectedMedia.name} 
+                          className="max-w-full max-h-full object-contain"
+                          crossOrigin="anonymous"
+                          onLoad={() => console.log('Image loaded successfully')}
+                          onError={(e) => {
+                            console.error('Image load failed', e);
+                            // Fallback to error message
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Video Preview */}
+                    {['mp4', 'webm', 'ogg', 'mov'].includes(selectedMedia.extension) && (
+                      <video 
+                        src={previewUrl} 
+                        controls 
+                        autoPlay
+                        className="max-w-full max-h-full"
+                      />
+                    )}
+
+                    {/* PDF Preview */}
+                    {selectedMedia.extension === 'pdf' && (
+                      <iframe 
+                        src={`${previewUrl}#toolbar=0`}
+                        className="w-full h-full border-0 bg-white"
+                        title={selectedMedia.name}
+                      />
+                    )}
+
+                    {/* Text Preview */}
+                    {['txt', 'md', 'log', 'js', 'ts', 'tsx', 'html', 'css', 'json'].includes(selectedMedia.extension) && (
+                      <div className="w-full h-full p-8 md:p-12 overflow-auto bg-[#0a0a0a]">
+                        <pre className="text-slate-300 font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
+                          {textContent || 'Carregando conteúdo...'}
+                        </pre>
+                      </div>
+                    )}
+
+                    {/* Unsupported Preview */}
+                    {!['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'svg', 'mp4', 'webm', 'ogg', 'mov', 'pdf', 'txt', 'md', 'log', 'js', 'ts', 'tsx', 'html', 'css', 'json'].includes(selectedMedia.extension) && (
+                      <div className="text-center p-12">
+                        <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mb-6 mx-auto">
+                          <File className="w-10 h-10 text-white/20" />
+                        </div>
+                        <h4 className="text-white font-bold text-lg">Visualização não disponível</h4>
+                        <p className="text-white/40 mt-2 text-sm max-w-xs mx-auto">Este formato de arquivo não pode ser visualizado no navegador.</p>
+                        <button 
+                          onClick={() => handleDownload(selectedMedia.name)}
+                          className="mt-8 px-6 py-3 bg-white text-black rounded-2xl font-bold hover:bg-blue-50 transition-colors"
+                        >
+                          Baixar Arquivo
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
-            </div>
+            </motion.div>
           </div>
         )}
       </AnimatePresence>

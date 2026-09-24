@@ -179,12 +179,91 @@ app.get('/api/storage-info', authenticateToken, async (req, res) => {
   }
 });
 
+// Recent Files Route (Scan recursively, limited to 50 items for performance)
+app.get('/api/recent-files', authenticateToken, async (req, res) => {
+  try {
+    const allFiles: any[] = [];
+    
+    async function scan(dir: string, relativeDir: string = '') {
+      const files = await fs.readdir(dir);
+      for (const file of files) {
+        if (allFiles.length > 200) break; // Limit scan for performance
+        const fullPath = path.join(dir, file);
+        const relPath = path.join(relativeDir, file);
+        const stats = await fs.stat(fullPath);
+        
+        if (stats.isDirectory()) {
+          // Skip system folders
+          if (file.startsWith('.')) continue;
+          await scan(fullPath, relPath);
+        } else {
+          allFiles.push({
+            name: file,
+            path: relPath.replace(/\\/g, '/'),
+            isDirectory: false,
+            size: stats.size,
+            updatedAt: stats.mtime,
+            extension: path.extname(file).toLowerCase().replace('.', '')
+          });
+        }
+      }
+    }
+
+    await scan(STORAGE_ROOT);
+    
+    const sorted = allFiles
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, 50);
+
+    res.json(sorted);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // Download & Stream
 app.get('/api/download', authenticateToken, (req, res) => {
   try {
     const filePath = req.query.path as string;
     const safePath = getSafePath(filePath);
     res.download(safePath);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.get('/api/preview', (req, res) => {
+  try {
+    const token = req.query.token as string;
+    if (!token) return res.sendStatus(401);
+
+    jwt.verify(token, JWT_SECRET, (err: any) => {
+      if (err) return res.sendStatus(403);
+      
+      const filePath = req.query.path as string;
+      const safePath = getSafePath(filePath);
+      
+      // Set appropriate content type based on extension
+      const ext = path.extname(safePath).toLowerCase();
+      const contentTypes: Record<string, string> = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.svg': 'image/svg+xml',
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm',
+        '.pdf': 'application/pdf',
+        '.txt': 'text/plain',
+      };
+      
+      if (contentTypes[ext]) {
+        res.setHeader('Content-Type', contentTypes[ext]);
+      }
+
+      res.sendFile(safePath);
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }

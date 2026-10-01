@@ -18,12 +18,22 @@ interface FileExplorerProps {
   view: 'home' | 'recent' | 'starred' | 'trash';
 }
 
+interface UploadTask {
+  id: string;
+  name: string;
+  file: File;
+  progress: number;
+  status: 'pending' | 'uploading' | 'completed' | 'error';
+  folderPath: string;
+  error?: string;
+}
+
 export default function FileExplorer({ currentPath, setCurrentPath, view }: FileExplorerProps) {
   const [items, setItems] = useState<FileItemData[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
-  const [uploadQueue, setUploadQueue] = useState<{ id: string; name: string; progress: number; status: 'uploading' | 'completed' | 'error'; }[]>([]);
+  const [uploadQueue, setUploadQueue] = useState<UploadTask[]>([]);
   const [showUploadQueue, setShowUploadQueue] = useState(false);
   const [isQueueMinimized, setIsQueueMinimized] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<{ name: string; path: string; type: string; extension: string } | null>(null);
@@ -32,6 +42,8 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
   const [heicLoading, setHeicLoading] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeUploadsRef = useRef<number>(0);
+  const MAX_CONCURRENT_UPLOADS = 3;
 
   const getFileUrl = (path: string) => {
     return `/api/preview?path=${encodeURIComponent(path)}&token=${localStorage.getItem('drive_token')}`;
@@ -116,6 +128,59 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
     fetchFiles();
   }, [currentPath, view]);
 
+  // Background Upload Worker
+  useEffect(() => {
+    const processQueue = async () => {
+      if (activeUploadsRef.current >= MAX_CONCURRENT_UPLOADS) return;
+
+      const nextTask = uploadQueue.find(t => t.status === 'pending');
+      if (!nextTask) return;
+
+      activeUploadsRef.current += 1;
+      
+      // Mark as uploading
+      setUploadQueue(prev => prev.map(t => 
+        t.id === nextTask.id ? { ...t, status: 'uploading' } : t
+      ));
+
+      const formData = new FormData();
+      formData.append('files', nextTask.file);
+
+      try {
+        await api.post(`/api/upload?folderPath=${encodeURIComponent(nextTask.folderPath)}`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          onUploadProgress: (progressEvent) => {
+            const progress = progressEvent.total 
+              ? Math.round((progressEvent.loaded * 100) / progressEvent.total)
+              : 0;
+            
+            setUploadQueue(prev => prev.map(item => 
+              item.id === nextTask.id ? { ...item, progress } : item
+            ));
+          }
+        });
+        
+        setUploadQueue(prev => prev.map(item => 
+          item.id === nextTask.id ? { ...item, status: 'completed', progress: 100 } : item
+        ));
+        
+        // Refresh if we are in the same folder
+        if (nextTask.folderPath === currentPath) {
+          fetchFiles();
+        }
+      } catch (error: any) {
+        console.error('Upload failed', error);
+        setUploadQueue(prev => prev.map(item => 
+          item.id === nextTask.id ? { ...item, status: 'error', error: error.message } : item
+        ));
+      } finally {
+        activeUploadsRef.current -= 1;
+      }
+    };
+
+    processQueue();
+  }, [uploadQueue, currentPath]);
+
   const handleFolderClick = (folderName: string) => {
     const newPath = currentPath ? `${currentPath}/${folderName}` : folderName;
     setCurrentPath(newPath);
@@ -128,54 +193,35 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
     setCurrentPath(parts.join('/'));
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
     
     const files = Array.from(e.target.files);
     setShowUploadQueue(true);
     setIsQueueMinimized(false);
     
-    // Process files one by one for better progress tracking
-    for (const file of files) {
-      const uploadId = Math.random().toString(36).substring(7);
-      
-      setUploadQueue(prev => [...prev, { 
-        id: uploadId, 
-        name: file.name, 
-        progress: 0, 
-        status: 'uploading' 
-      }]);
+    const newTasks: UploadTask[] = files.map(file => ({
+      id: Math.random().toString(36).substring(7),
+      name: file.name,
+      file,
+      progress: 0,
+      status: 'pending',
+      folderPath: currentPath
+    }));
 
-      const formData = new FormData();
-      formData.append('files', file);
-
-      try {
-        await api.post(`/api/upload?folderPath=${encodeURIComponent(currentPath)}`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          onUploadProgress: (progressEvent) => {
-            const progress = progressEvent.total 
-              ? Math.round((progressEvent.loaded * 100) / progressEvent.total)
-              : 0;
-            
-            setUploadQueue(prev => prev.map(item => 
-              item.id === uploadId ? { ...item, progress } : item
-            ));
-          }
-        });
-        
-        setUploadQueue(prev => prev.map(item => 
-          item.id === uploadId ? { ...item, status: 'completed', progress: 100 } : item
-        ));
-      } catch (error) {
-        console.error('Upload failed', error);
-        setUploadQueue(prev => prev.map(item => 
-          item.id === uploadId ? { ...item, status: 'error' } : item
-        ));
-      }
-    }
+    setUploadQueue(prev => [...prev, ...newTasks]);
     
-    fetchFiles();
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRetryUpload = (id: string) => {
+    setUploadQueue(prev => prev.map(item => 
+      item.id === id ? { ...item, status: 'pending', progress: 0, error: undefined } : item
+    ));
+  };
+
+  const handleClearCompleted = () => {
+    setUploadQueue(prev => prev.filter(item => item.status === 'uploading' || item.status === 'pending'));
   };
 
   const handleDelete = async (name: string) => {
@@ -610,14 +656,14 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
             {/* Header */}
             <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
-                {uploadQueue.some(u => u.status === 'uploading') ? (
+                {uploadQueue.some(u => u.status === 'uploading' || u.status === 'pending') ? (
                   <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
                 ) : (
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 )}
                 <span className="text-xs font-bold uppercase tracking-wider">
-                  {uploadQueue.some(u => u.status === 'uploading') 
-                    ? `Enviando ${uploadQueue.filter(u => u.status === 'uploading').length} arquivos`
+                  {uploadQueue.some(u => u.status === 'uploading' || u.status === 'pending') 
+                    ? `Enviando ${uploadQueue.filter(u => u.status === 'uploading' || u.status === 'pending').length} arquivos`
                     : 'Uploads concluídos'}
                 </span>
               </div>
@@ -628,6 +674,15 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
                 >
                   {isQueueMinimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
                 </button>
+                {!isQueueMinimized && uploadQueue.some(u => u.status === 'completed') && (
+                  <button 
+                    onClick={handleClearCompleted}
+                    className="p-1 hover:bg-white/10 rounded-lg transition-colors text-[10px] px-2 font-medium"
+                    title="Limpar concluídos"
+                  >
+                    Limpar
+                  </button>
+                )}
                 <button 
                   onClick={() => {
                     if (uploadQueue.some(u => u.status === 'uploading')) {
@@ -651,17 +706,31 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
             {!isQueueMinimized && (
               <div className="overflow-y-auto max-h-[344px] p-2 bg-white">
                 {uploadQueue.map((item) => (
-                  <div key={item.id} className="p-3 border-b border-slate-50 last:border-0">
+                  <div key={item.id} className="p-3 border-b border-slate-50 last:border-0 group/item">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2 overflow-hidden">
-                        {item.status === 'uploading' && <Loader2 className="w-3 h-3 animate-spin text-blue-500 shrink-0" />}
+                        {(item.status === 'uploading' || item.status === 'pending') && <Loader2 className="w-3 h-3 animate-spin text-blue-500 shrink-0" />}
                         {item.status === 'completed' && <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />}
                         {item.status === 'error' && <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />}
-                        <span className="text-xs font-medium text-slate-700 truncate">{item.name}</span>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs font-medium text-slate-700 truncate">{item.name}</span>
+                          {item.status === 'error' && <span className="text-[9px] text-red-500 truncate">{item.error}</span>}
+                        </div>
                       </div>
-                      <span className="text-[10px] font-mono text-slate-400">
-                        {item.status === 'uploading' ? `${item.progress}%` : item.status}
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] font-mono text-slate-400">
+                          {item.status === 'uploading' ? `${item.progress}%` : item.status === 'pending' ? 'Fila' : ''}
+                        </span>
+                        {item.status === 'error' && (
+                          <button 
+                            onClick={() => handleRetryUpload(item.id)}
+                            className="p-1 hover:bg-slate-100 rounded text-blue-600 transition-colors"
+                            title="Tentar novamente"
+                          >
+                            <Plus className="w-3 h-3 rotate-45" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {item.status === 'uploading' && (
                       <div className="h-1 bg-slate-100 rounded-full overflow-hidden">

@@ -11,6 +11,7 @@ export interface FileItemData {
   size: number;
   updatedAt: string;
   extension: string;
+  path?: string;
 }
 
 export default function App() {

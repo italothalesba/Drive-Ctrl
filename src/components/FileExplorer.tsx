@@ -43,7 +43,8 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeUploadsRef = useRef<number>(0);
-  const MAX_CONCURRENT_UPLOADS = 3;
+  const MAX_CONCURRENT_UPLOADS = 4;
+  const [isDragging, setIsDragging] = useState(false);
 
   const getFileUrl = (path: string) => {
     return `/api/preview?path=${encodeURIComponent(path)}&token=${localStorage.getItem('drive_token')}`;
@@ -130,24 +131,19 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
 
   // Background Upload Worker
   useEffect(() => {
-    const processQueue = async () => {
-      if (activeUploadsRef.current >= MAX_CONCURRENT_UPLOADS) return;
-
-      const nextTask = uploadQueue.find(t => t.status === 'pending');
-      if (!nextTask) return;
-
+    const startUpload = async (task: UploadTask) => {
       activeUploadsRef.current += 1;
       
       // Mark as uploading
       setUploadQueue(prev => prev.map(t => 
-        t.id === nextTask.id ? { ...t, status: 'uploading' } : t
+        t.id === task.id ? { ...t, status: 'uploading' } : t
       ));
 
       const formData = new FormData();
-      formData.append('files', nextTask.file);
+      formData.append('files', task.file);
 
       try {
-        await api.post(`/api/upload?folderPath=${encodeURIComponent(nextTask.folderPath)}`, formData, {
+        await api.post(`/api/upload?folderPath=${encodeURIComponent(task.folderPath)}`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
           onUploadProgress: (progressEvent) => {
             const progress = progressEvent.total 
@@ -155,26 +151,38 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
               : 0;
             
             setUploadQueue(prev => prev.map(item => 
-              item.id === nextTask.id ? { ...item, progress } : item
+              item.id === task.id ? { ...item, progress } : item
             ));
           }
         });
         
         setUploadQueue(prev => prev.map(item => 
-          item.id === nextTask.id ? { ...item, status: 'completed', progress: 100 } : item
+          item.id === task.id ? { ...item, status: 'completed', progress: 100 } : item
         ));
         
-        // Refresh if we are in the same folder
-        if (nextTask.folderPath === currentPath) {
+        if (task.folderPath === currentPath) {
           fetchFiles();
         }
       } catch (error: any) {
         console.error('Upload failed', error);
         setUploadQueue(prev => prev.map(item => 
-          item.id === nextTask.id ? { ...item, status: 'error', error: error.message } : item
+          item.id === task.id ? { ...item, status: 'error', error: error.message } : item
         ));
       } finally {
         activeUploadsRef.current -= 1;
+        // Trigger next check
+        setUploadQueue(prev => [...prev]);
+      }
+    };
+
+    const processQueue = () => {
+      const pendingTasks = uploadQueue.filter(t => t.status === 'pending');
+      const slotsAvailable = MAX_CONCURRENT_UPLOADS - activeUploadsRef.current;
+      
+      if (slotsAvailable > 0 && pendingTasks.length > 0) {
+        pendingTasks.slice(0, slotsAvailable).forEach(task => {
+          startUpload(task);
+        });
       }
     };
 
@@ -193,10 +201,17 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
     setCurrentPath(parts.join('/'));
   };
 
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length) return;
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent) => {
+    let files: File[] = [];
     
-    const files = Array.from(e.target.files);
+    if ('target' in e && (e.target as HTMLInputElement).files) {
+      files = Array.from((e.target as HTMLInputElement).files || []);
+    } else if ('dataTransfer' in e) {
+      files = Array.from(e.dataTransfer.files);
+    }
+
+    if (!files.length) return;
+    
     setShowUploadQueue(true);
     setIsQueueMinimized(false);
     
@@ -212,6 +227,21 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
     setUploadQueue(prev => [...prev, ...newTasks]);
     
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const onDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    handleUpload(e);
   };
 
   const handleRetryUpload = (id: string) => {
@@ -311,7 +341,31 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
   }
 
   return (
-    <div className="p-6 h-full flex flex-col">
+    <div 
+      className={`p-6 h-full flex flex-col relative transition-colors ${isDragging ? 'bg-blue-50/50' : ''}`}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {/* Drag overlay hint */}
+      <AnimatePresence>
+        {isDragging && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-40 bg-blue-600/10 backdrop-blur-[2px] flex items-center justify-center pointer-events-none"
+          >
+            <div className="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4 border-2 border-dashed border-blue-400">
+              <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center">
+                <Upload className="w-8 h-8 text-blue-600 animate-bounce" />
+              </div>
+              <p className="text-blue-900 font-bold">Solte para fazer upload agora</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Action Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div className="flex items-center gap-2 text-sm text-slate-500 overflow-hidden">

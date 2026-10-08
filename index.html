@@ -3,10 +3,33 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Drive Ctrl - Hospital Santa Maria</title>
-    <meta name="description" content="Acesse seus documentos com segurança no Drive Ctrl. Cuidando de você há 28 anos." />
-    <meta property="og:title" content="Drive Ctrl - Hospital Santa Maria" />
-    <meta property="og:description" content="Acesse seus documentos com segurança no Drive Ctrl. Cuidando de você há 28 anos." />
+    <title>Drive Ctrl</title>
+    <script>
+      // Suppress Vite WebSocket errors in this environment
+      const _consoleError = console.error;
+      console.error = (...args) => {
+        if (typeof args[0] === 'string' && (args[0].includes('WebSocket') || args[0].includes('vite'))) {
+          return;
+        }
+        _consoleError.apply(console, args);
+      };
+      
+      window.addEventListener('unhandledrejection', (event) => {
+        if (event.reason && event.reason.message && (event.reason.message.includes('WebSocket') || event.reason.message.includes('vite'))) {
+          event.preventDefault();
+        }
+      });
+    </script>
+    <meta name="description" content="Acesse seus documentos com segurança no Drive Ctrl. Sua nuvem particular de alta performance." />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="DriveCtrl" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta property="og:title" content="Drive Ctrl" />
+    <meta property="og:description" content="Acesse seus documentos com segurança no Drive Ctrl. Sua nuvem particular de alta performance." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
   </head>

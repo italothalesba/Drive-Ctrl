@@ -14,7 +14,7 @@ import checkDiskSpace from 'check-disk-space';
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 // Default to F:\ for the user, but fallback to ./data for safety in this env
 const STORAGE_ROOT = path.resolve(process.env.STORAGE_ROOT || 'F:\\');
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';

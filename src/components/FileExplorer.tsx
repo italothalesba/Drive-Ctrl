@@ -43,7 +43,7 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeUploadsRef = useRef<number>(0);
-  const MAX_CONCURRENT_UPLOADS = 4;
+  const MAX_CONCURRENT_UPLOADS = 6;
   const [isDragging, setIsDragging] = useState(false);
 
   const getFileUrl = (path: string) => {
@@ -202,19 +202,26 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
   };
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent) => {
-    let files: File[] = [];
+    let rawFiles: FileList | null = null;
     
     if ('target' in e && (e.target as HTMLInputElement).files) {
-      files = Array.from((e.target as HTMLInputElement).files || []);
+      rawFiles = (e.target as HTMLInputElement).files;
     } else if ('dataTransfer' in e) {
-      files = Array.from(e.dataTransfer.files);
+      rawFiles = e.dataTransfer.files;
     }
 
-    if (!files.length) return;
+    if (!rawFiles || rawFiles.length === 0) return;
     
+    const files = Array.from(rawFiles);
+    
+    // Clear input immediately to allow re-selection
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    // Show queue instantly
     setShowUploadQueue(true);
     setIsQueueMinimized(false);
     
+    // Map tasks immediately but in chunks if needed
     const newTasks: UploadTask[] = files.map(file => ({
       id: Math.random().toString(36).substring(7),
       name: file.name,
@@ -225,8 +232,17 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
     }));
 
     setUploadQueue(prev => [...prev, ...newTasks]);
-    
-    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    // Request Wake Lock if available to help with background uploads
+    if ('wakeLock' in navigator) {
+      try {
+        (navigator as any).wakeLock.request('screen').catch((err: any) => {
+          console.warn('Wake Lock request failed:', err);
+        });
+      } catch (err) {
+        console.warn('Wake Lock failed:', err);
+      }
+    }
   };
 
   const onDragOver = (e: React.DragEvent) => {
@@ -427,11 +443,10 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
           
           <button 
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploadQueue.some(u => u.status === 'uploading')}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20"
           >
             <Upload className="w-4 h-4" />
-            {uploadQueue.some(u => u.status === 'uploading') ? 'Enviando...' : 'Upload'}
+            Adicionar
           </button>
           <input 
             type="file" 
@@ -708,52 +723,59 @@ export default function FileExplorer({ currentPath, setCurrentPath, view }: File
             className={`fixed bottom-6 right-6 w-80 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden z-[60] transition-all duration-300 ${isQueueMinimized ? 'h-14' : 'max-h-[400px]'}`}
           >
             {/* Header */}
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {uploadQueue.some(u => u.status === 'uploading' || u.status === 'pending') ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-                ) : (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                )}
-                <span className="text-xs font-bold uppercase tracking-wider">
-                  {uploadQueue.some(u => u.status === 'uploading' || u.status === 'pending') 
-                    ? `Enviando ${uploadQueue.filter(u => u.status === 'uploading' || u.status === 'pending').length} arquivos`
-                    : 'Uploads concluídos'}
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <button 
-                  onClick={() => setIsQueueMinimized(!isQueueMinimized)}
-                  className="p-1 hover:bg-white/10 rounded-lg transition-colors"
-                >
-                  {isQueueMinimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
-                </button>
-                {!isQueueMinimized && uploadQueue.some(u => u.status === 'completed') && (
+            <div className="p-4 bg-slate-900 text-white flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {uploadQueue.some(u => u.status === 'uploading' || u.status === 'pending') ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  )}
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    {uploadQueue.some(u => u.status === 'uploading' || u.status === 'pending') 
+                      ? `Enviando ${uploadQueue.filter(u => u.status === 'uploading' || u.status === 'pending').length} arquivos`
+                      : 'Uploads concluídos'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
                   <button 
-                    onClick={handleClearCompleted}
-                    className="p-1 hover:bg-white/10 rounded-lg transition-colors text-[10px] px-2 font-medium"
-                    title="Limpar concluídos"
+                    onClick={() => setIsQueueMinimized(!isQueueMinimized)}
+                    className="p-1 hover:bg-white/10 rounded-lg transition-colors"
                   >
-                    Limpar
+                    {isQueueMinimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
                   </button>
-                )}
-                <button 
-                  onClick={() => {
-                    if (uploadQueue.some(u => u.status === 'uploading')) {
-                      if (confirm('Cancelar todos os uploads em andamento?')) {
+                  {!isQueueMinimized && uploadQueue.some(u => u.status === 'completed') && (
+                    <button 
+                      onClick={handleClearCompleted}
+                      className="p-1 hover:bg-white/10 rounded-lg transition-colors text-[10px] px-2 font-medium"
+                      title="Limpar concluídos"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => {
+                      if (uploadQueue.some(u => u.status === 'uploading')) {
+                        if (confirm('Cancelar todos os uploads em andamento?')) {
+                          setShowUploadQueue(false);
+                          setUploadQueue([]);
+                        }
+                      } else {
                         setShowUploadQueue(false);
                         setUploadQueue([]);
                       }
-                    } else {
-                      setShowUploadQueue(false);
-                      setUploadQueue([]);
-                    }
-                  }}
-                  className="p-1 hover:bg-white/10 rounded-lg transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                    }}
+                    className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
+              {!isQueueMinimized && uploadQueue.some(u => u.status === 'uploading') && (
+                <p className="text-[10px] text-slate-400 font-medium">
+                  Dica: Instale o App para uploads mais rápidos em segundo plano.
+                </p>
+              )}
             </div>
 
             {/* List */}

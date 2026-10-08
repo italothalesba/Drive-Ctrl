@@ -73,7 +73,7 @@ export default function App() {
           <FileExplorer 
             currentPath={currentPath} 
             setCurrentPath={setCurrentPath} 
-            view={view}
+            view={view as any}
           />
         </div>
 

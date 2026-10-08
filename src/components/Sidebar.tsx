@@ -1,5 +1,6 @@
 import React from 'react';
-import { Home, Clock, Star, Trash2, Cloud, HardDrive, Plus, Upload } from 'lucide-react';
+import { Home, Clock, Star, Trash2, Cloud, HardDrive, Plus } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface SidebarProps {
   currentView: 'home' | 'recent' | 'starred' | 'trash';
@@ -80,14 +81,18 @@ export default function Sidebar({ currentView, onViewChange, storageInfo }: Side
         </div>
       </div>
 
-      <div className="p-4 m-3 rounded-xl bg-slate-50 border border-slate-100">
-        <div className="flex items-start gap-3">
-          <div className="p-2 bg-white rounded-lg border border-slate-200">
-            <HardDrive className="w-4 h-4 text-slate-400" />
-          </div>
-          <div>
-            <p className="text-[11px] font-bold text-slate-900 leading-tight">Servidor Local</p>
-            <p className="text-[10px] text-slate-500 leading-tight mt-0.5">Online • HD F:</p>
+      <div className="p-4 m-3 mt-0 space-y-3">
+        <PWAInstallButton />
+        
+        <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-white rounded-lg border border-slate-200">
+              <HardDrive className="w-4 h-4 text-slate-400" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold text-slate-900 leading-tight">Servidor Local</p>
+              <p className="text-[10px] text-slate-500 leading-tight mt-0.5">Online • HD F:</p>
+            </div>
           </div>
         </div>
       </div>
